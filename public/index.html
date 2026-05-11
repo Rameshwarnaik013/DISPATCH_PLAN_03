@@ -673,7 +673,7 @@ const EXPORT_COLS = [
   'Merge','CFA Check','Is CFA'
 ];
 
-const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD']);
+const DATE_COLS = new Set(['po_expiry_date','Appt','Remark','If Dispatched, then EDD']);
 
 function exportToExcel() {
   if (!outputRows.length) return;
@@ -704,10 +704,12 @@ function exportToExcel() {
     EXPORT_COLS.forEach((h, ci) => {
       const addr = XLSX.utils.encode_cell({r:R, c:ci});
       if (!ws[addr]) return;
-      if (DATE_COLS.has(h) && typeof ws[addr].v==='number') {
+      if (h==='Sales_Order_Date' && typeof ws[addr].v==='number') {
+        ws[addr].t = 'n'; ws[addr].z = 'YYYY-MM-DD';
+      } else if (DATE_COLS.has(h) && typeof ws[addr].v==='number') {
         ws[addr].t = 'n'; ws[addr].z = 'DD-MMM-YYYY';
       } else if (h==='EDD' && typeof ws[addr].v==='number') {
-        ws[addr].t = 'n';
+        ws[addr].t = 'n'; ws[addr].z = '0';
       }
     });
   }
