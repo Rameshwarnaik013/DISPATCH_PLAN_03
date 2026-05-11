@@ -163,7 +163,7 @@ tr.red-row:hover td{background:rgba(255,68,68,.13);}
 /* ═══════════════════════════════════════════════════════════════════════════
    STATE
 ═══════════════════════════════════════════════════════════════════════════ */
-const files = { dump:null, leadtime:null, appointments:null, yesterday:null };
+const files = { dump:null, leadtime:null, appointments:null, yesterday:null, cfaGurgaon:null };
 let outputRows = [];
 let logLines = [];
 
@@ -189,6 +189,9 @@ const CONDITIONS = [
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
   { sno:18, col:'Dispatch_Status',          rule:'Carry Dispatch_Status from Dump as-is (Partial Dispatch / Pending).' },
+  { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
+  { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
+  { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -199,6 +202,7 @@ const CARDS = [
   { key:'leadtime',     name:'LEAD TIME',               desc:'Origin × State → Days',       icon:'🗓'  },
   { key:'appointments', name:'Appointments',            desc:'PO-No → Appointment dates',   icon:'📅' },
   { key:'yesterday',    name:'Dispatch Plan_yesterday', desc:'Previous day plan (remarks)',  icon:'📋' },
+  { key:'cfaGurgaon',   name:'CFA Gurgaon Stock',       desc:'Stock availability (optional)',icon:'🏭' },
 ];
 
 const grid = document.getElementById('uploadGrid');
@@ -319,13 +323,15 @@ async function run() {
   const [dWB,ltWB,apWB,yWB] = await Promise.all([
     readWB(files.dump), readWB(files.leadtime), readWB(files.appointments), readWB(files.yesterday)
   ]);
+  const cfaWB = files.cfaGurgaon ? await readWB(files.cfaGurgaon) : null;
 
   const dump      = sheet2json(dWB, 0);
   const ltData    = sheet2json(ltWB, 0);
   const apptData  = sheet2json(apWB, 0);
   const yesterday = sheet2json(yWB, 0);
+  const cfaData   = cfaWB ? sheet2json(cfaWB, 0) : [];
 
-  log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}`,'ok');
+  log(`Dump: ${dump.length} rows | Lead Time: ${ltData.length} | Appointments: ${apptData.length} | Yesterday: ${yesterday.length}` + (cfaData.length ? ` | CFA Gurgaon: ${cfaData.length}` : ''),'ok');
 
   /* ── CONDITION 5: Lead Time map ─────────────────────────────────────── */
   const ltMap = {};
@@ -350,6 +356,85 @@ async function run() {
     });
   }
   log(`Appointments map: ${Object.keys(apptMap).length} PO entries`,'ok');
+
+  /* ── CFA Gurgaon Stock map ─────────────────────────────────────────── */
+  const cfaStockMap = {};
+  if (cfaData.length > 0) {
+    const cs = cfaData[0];
+    const cfaItemKey = Object.keys(cs).find(k => /item.?name/i.test(String(k))) || 'Item Name';
+    const cfaStorageKey = Object.keys(cs).find(k => /storage.?beyond/i.test(String(k))) || 'Storage Beyond Sqfeet Gurgaon Finished Goods - CBSPL';
+    cfaData.forEach(r => {
+      const itemName = nor(r[cfaItemKey]);
+      const storageVal = parseFloat(r[cfaStorageKey]) || 0;
+      if (itemName) cfaStockMap[itemName] = storageVal;
+    });
+    log(`CFA Gurgaon stock map: ${Object.keys(cfaStockMap).length} items`,'ok');
+  }
+
+  /* ── CFA Gurgaon constants ─────────────────────────────────────────── */
+  const CFA_CUSTOMER_GROUPS = new Set(['amazon retail india','category a','vending','horeca']);
+  const CFA_SHIPPING_STATES = new Set([
+    'uttarakhand','uttar pradesh','punjab','delhi','jammu and kashmir',
+    'himachal pradesh','haryana','rajasthan','ladakh','chandigarh'
+  ]);
+  const CFA_ITEM_LIST = new Set([
+    'apple pie date bite farmley sachet 20 g - single serve',
+    'apple pie date bite farmley tin jar 200g',
+    'assorted date bites farmley box 180g',
+    'choco date bite farmley sachet 20 g - single serve',
+    'choco date bite farmley tin jar 200g',
+    'classic date bites farmley sachet 20 g - single serve',
+    'classic date bites farmley tin jar 200g',
+    'dry fruit mix trail mix farmley pouch 200 g',
+    'farmley almond 200 g',
+    'farmley almond 500g',
+    'farmley almond 1 kg',
+    'farmley apricot 200 g',
+    'farmley california almonds 200 g pouch',
+    'farmley california almonds 500 g pouch',
+    'farmley california almonds 1 kg jar',
+    'farmley cashew 200 g',
+    'farmley cashew 500g',
+    'farmley cashew 1 kg',
+    'farmley cranberries 200 g',
+    'farmley dates 500g',
+    'farmley figs 200 g',
+    'farmley golden raisins 200 g',
+    'farmley green raisins 500 g pouch',
+    'farmley mixed seeds 200g',
+    'farmley peri peri cashews 200 g pouch',
+    'farmley pistachio 200 g',
+    'farmley prime walnut kernels 200 g pouch',
+    'farmley pumpkin seeds 200g',
+    'farmley raisins 200 g',
+    'farmley raisins 500g',
+    'farmley roasted almonds 200 g',
+    'farmley roasted cashews 200 g pouch',
+    'farmley salted almonds 200 g pouch',
+    'farmley seed mix trail mix pouch 200g',
+    'farmley sliced almonds 200 g',
+    'farmley slivered almonds 200 g',
+    'farmley sunflower seeds 200g',
+    'farmley walnut kernels 200 g',
+    'fig date bite farmley sachet 20 g - single serve',
+    'fig date bite farmley tin jar 200g',
+    'luxury date bites farmley box 180g',
+    'mango date bite farmley sachet 20 g - single serve',
+    'mango date bite farmley tin jar 200g',
+    'protein date bite farmley sachet 20 g - single serve',
+    'protein date bite farmley tin jar 200g',
+    'super mix trail mix farmley pouch 200 g',
+    'walnut brownie date bite farmley sachet 20 g - single serve',
+    'walnut brownie date bite farmley tin jar 200g',
+    'farmley berries and seeds trail mix pouch 200 g',
+    'farmley breakfast trail mix pouch 200 g',
+    'farmley chocoberry trail mix pouch 200 g',
+    'farmley energy trail mix pouch 200 g',
+    'farmley fitness trail mix pouch 200 g',
+    'farmley immunity trail mix pouch 200 g',
+    'farmley nutri mix trail mix pouch 200 g',
+    'farmley power trail mix pouch 200 g',
+  ].map(s => s.toLowerCase()));
 
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
@@ -380,6 +465,9 @@ async function run() {
     PurneaStatus: fc(ds,'Origin_Purnea_Status'),
     UDStatus:     fc(ds,'Origin_UD_Foods_Status'),
     DispStatus:   fc(ds,'Dispatch_Status','Dispatch Status'),
+    ItemName:     fc(ds,'Item_Name','Item Name','Item_name','item_name'),
+    OriginKgs:    fc(ds,'Origin Kgs','Origin_Kgs','OriginKgs'),
+    Customer:     fc(ds,'Customer'),
   };
 
   const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
@@ -432,13 +520,27 @@ async function run() {
     const soNo      = String(row[COL.SalesOrderNo]||'');
     const itemCode  = String(row[COL.ItemCode]||'');
     const cc        = soNo + itemCode;                    // CONDITION 4
-    const origin    = String(row[COL.Origin]||'');
+    let   origin    = String(row[COL.Origin]||'');
     const shipState = String(row[COL.ShipState]||'');
     const custGroup = String(row[COL.CustGroup]||'');
+    const itemName  = String(row[COL.ItemName]||'');
+    const customerVal = String(row[COL.Customer]||'');
+    const originKgs = parseFloat(row[COL.OriginKgs]) || 0;
     const clientType= String(row[COL.ClientType]||'');
     const isFK  = FK_TYPES.has(nor(clientType));
     const isNow = nor(clientType)==='now';
     const isCat = CAT_GROUP.has(nor(custGroup)); // Category A or Modern Trade
+
+    /* ── CFA (Gurgaon) Origin Override (conditions 19-20) ──────────── */
+    if (files.cfaGurgaon) {
+      const cfaCustOk  = CFA_CUSTOMER_GROUPS.has(nor(custGroup));
+      const cfaItemOk  = CFA_ITEM_LIST.has(nor(itemName));
+      const cfaStockOk = (cfaStockMap[nor(itemName)] || 0) > 0;
+      const cfaStateOk = CFA_SHIPPING_STATES.has(nor(shipState));
+      if (cfaCustOk && cfaItemOk && cfaStockOk && cfaStateOk) {
+        origin = 'CFA (Gurgaon)';
+      }
+    }
 
     /* CONDITION 5: Day from Lead Time */
     const day = ltMap[nor(origin)+'||'+nor(shipState)] || 0;
@@ -483,8 +585,17 @@ async function run() {
     }
     const eddGt1 = typeof prelimEDD === 'number' && prelimEDD > 1;
 
+    /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
+    const custGroupNor21 = nor(custGroup);
+    const isRemarkClosed = pendKgs < originKgs
+      && pendKgs > 0
+      && (custGroupNor21 === 'modern trade' || custGroupNor21 === 'quick commerce')
+      && nor(customerVal) === 'avenue e-commerce ltd';
+
     let remarkRaw;
-    if (isCat) {
+    if (isRemarkClosed) {
+      remarkRaw = 'closed';
+    } else if (isCat) {
       /* CONDITION 8: Category A / Modern Trade → carry yesterday's remark as-is */
       remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
     } else if (ysIsNum) {
@@ -505,12 +616,12 @@ async function run() {
       dispEDDSerial = remarkSerial + day;
     }
 
-    /* CONDITION 12 + 13: EDD */
+    /* CONDITION 12 + 13: EDD (integer — difference of two date serials) */
     let edd = '';
     if (dispEDDSerial !== null) {
-      if (isFK && apptSerial !== null)  edd = dispEDDSerial - apptSerial;
-      else if (poExpirySerial !== null) edd = dispEDDSerial - poExpirySerial;
-      else                              edd = dispEDDSerial;
+      if (isFK && apptSerial !== null)  edd = Math.round(dispEDDSerial - apptSerial);
+      else if (poExpirySerial !== null) edd = Math.round(dispEDDSerial - poExpirySerial);
+      else                              edd = Math.round(dispEDDSerial);
     }
 
     /* CONDITION 15: Priority */
@@ -558,15 +669,15 @@ async function run() {
       'Final Dispatch Status': finalDisp,
       'If Dispatched, then EDD': dispEDDSerial ? fmtD(dispEDDSerial) : '',
       EDD: (typeof edd==='number') ? edd : '',
-      'Origin Kgs': row['Origin Kgs']||pendKgs,
+      'Origin Kgs': row[COL.OriginKgs]||pendKgs,
       client_type: clientType,
-      Customer: row['Customer']||'',
-      Item_Name: row['Item_Name']||'',
+      Customer: customerVal,
+      Item_Name: itemName,
       'Pending Qty': row[COL.PendQty]||'',
       'Pending Kgs': pendKgs,
       Boxes: row['Boxes']||'',
       TPT: row['TPT']||'',
-      Origin: origin,
+      Origin: origin,  /* may be overridden to CFA (Gurgaon) */
       Shipping_Address_Name: row['Shipping_Address_Name']||'',
       item_parent: row['item_parent']||'',
       'Case Size': row['Case Size']||'',
@@ -611,7 +722,9 @@ async function run() {
   });
 
   outputRows = result;
-  log(`Rows kept: ${kept} | Rows skipped: ${skipped}`,'ok');
+  const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
+  const remarkClosedCount = result.filter(r => r.Remark === 'closed').length;
+  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | Remark closed: ${remarkClosedCount}`,'ok');
 
   renderTable(result);
   const redCount = result.filter(r=>r._red).length;
@@ -673,7 +786,13 @@ const EXPORT_COLS = [
   'Merge','CFA Check','Is CFA'
 ];
 
-const DATE_COLS = new Set(['po_expiry_date','Appt','Remark','If Dispatched, then EDD']);
+const DATE_COLS = new Set(['Sales_Order_Date','po_expiry_date','Appt','Remark','If Dispatched, then EDD','Delivery_Date','DATE(tso.sales_order_confirmation_date)']);
+const NUMERIC_COLS = new Set([
+  'Origin Kgs','Pending Qty','Pending Kgs','Boxes','Day',
+  'conversion_factor','Stock_qty','Qty','Selling Rate','MRP','TAX Rate',
+  'Selling Rate Per Kg','Amount','Tax Amount','Final Amount',
+  'Delivered_Qty','returned_qty','Shipping Pincode','Case Size'
+]);
 
 function exportToExcel() {
   if (!outputRows.length) return;
@@ -681,35 +800,44 @@ function exportToExcel() {
   const exportData = outputRows.map(row => {
     const obj = {};
     EXPORT_COLS.forEach(h => {
-      // Export dates as serial numbers so Excel shows them as dates
-      if (h==='Sales_Order_Date')           obj[h] = row._soDateSerial  || '';
-      else if (h==='po_expiry_date')        obj[h] = row._poExpirySerial|| '';
-      else if (h==='Appt')                  obj[h] = row._apptSerial    || '';
-      else if (h==='Remark')                obj[h] = row._remarkSerial!==null ? row._remarkSerial : (row._remarkRaw||'');
-      else if (h==='If Dispatched, then EDD') obj[h] = row._dispEDDSerial || '';
-      else if (h==='EDD')                   obj[h] = typeof row.EDD==='number' ? row.EDD : '';
-      else                                  obj[h] = row[h]??'';
+      // Export computed date columns as serial numbers so Excel shows them as dates
+      if (h==='Sales_Order_Date')              obj[h] = row._soDateSerial  || '';
+      else if (h==='po_expiry_date')           obj[h] = row._poExpirySerial|| '';
+      else if (h==='Appt')                     obj[h] = row._apptSerial    || '';
+      else if (h==='Remark')                   obj[h] = row._remarkSerial!==null ? row._remarkSerial : (row._remarkRaw||'');
+      else if (h==='If Dispatched, then EDD')  obj[h] = row._dispEDDSerial || '';
+      // Convert pass-through date columns to serials
+      else if (h==='Delivery_Date' || h==='DATE(tso.sales_order_confirmation_date)') {
+        const serial = toSerial(row[h]);
+        obj[h] = serial !== null ? serial : (row[h] || '');
+      }
+      // Ensure numeric columns are actual numbers, not strings
+      else if (NUMERIC_COLS.has(h)) {
+        const val = row[h];
+        if (val === '' || val === null || val === undefined) { obj[h] = ''; }
+        else if (typeof val === 'number') { obj[h] = val; }
+        else { const n = parseFloat(val); obj[h] = (!isNaN(n) ? n : val); }
+      }
+      else obj[h] = row[h] ?? '';
     });
     return obj;
   });
 
   const ws = XLSX.utils.json_to_sheet(exportData, {header: EXPORT_COLS});
 
-  // Apply date number format to date columns
-  const colIdx = {};
-  EXPORT_COLS.forEach((h,i) => { colIdx[h] = i; });
+  // Apply number formats to date and numeric columns
   const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
 
   for (let R = range.s.r+1; R <= range.e.r; R++) {
     EXPORT_COLS.forEach((h, ci) => {
       const addr = XLSX.utils.encode_cell({r:R, c:ci});
       if (!ws[addr]) return;
-      if (h==='Sales_Order_Date' && typeof ws[addr].v==='number') {
+      if (DATE_COLS.has(h) && typeof ws[addr].v === 'number') {
         ws[addr].t = 'n'; ws[addr].z = 'YYYY-MM-DD';
-      } else if (DATE_COLS.has(h) && typeof ws[addr].v==='number') {
-        ws[addr].t = 'n'; ws[addr].z = 'DD-MMM-YYYY';
-      } else if (h==='EDD' && typeof ws[addr].v==='number') {
-        ws[addr].t = 'n'; ws[addr].z = '0';
+      } else if (h === 'EDD' && typeof ws[addr].v === 'number') {
+        ws[addr].t = 'n'; ws[addr].z = '0';  // integer format
+      } else if (NUMERIC_COLS.has(h) && typeof ws[addr].v === 'number') {
+        ws[addr].t = 'n';
       }
     });
   }
