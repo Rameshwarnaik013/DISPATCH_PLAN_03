@@ -176,10 +176,8 @@ const CONDITIONS = [
   { sno:3,  col:'Final Dispatch Status',    rule:'Keep only rows where Final Dispatch Status is "Partial Dispatch" or "Pending". Derived from columns Origin_Indore_Status, Origin_Purnea_Status, Origin_UD_Foods_Status.' },
   { sno:4,  col:'CC',                       rule:'Concatenate Sales_Order_No + Item_Code from Dump tab.' },
   { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
-  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
-  { sno:7,  col:'Remark — All rows',         rule:'Remark is looked up from Dispatch Plan_yesterday using the CC column match. Three sub-rules apply depending on what is found and the row\'s EDD and customer_group (see rules 8–9 below).' },
-  { sno:8,  col:'Remark — Cat A / Modern Trade', rule:'If customer_group = "Category A" or "Modern Trade": Remark = previous day\'s Remark from Dispatch Plan_yesterday (CC lookup). If CC not found in yesterday → Remark stays blank.' },
-  { sno:9,  col:'Remark — All other groups', rule:'If customer_group ≠ "Category A" / "Modern Trade": (a) If yesterday\'s Remark is numeric → Remark = yesterday_remark + 1 (advances the date by one day). (b) If yesterday\'s Remark is text (e.g. "FTL 7 May Appt", "Appt Required", "Close") AND EDD ≤ 1 → carry text as-is. (c) If yesterday\'s Remark is text AND EDD > 1 → override with today\'s date serial (yesterday_max_numeric_remark + 1). (d) If CC not found in yesterday → default to today\'s date serial. Red cell highlight applies when EDD > 1.' },
+  { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
+  { sno:7,  col:'Remark — All rows',         rule:'Remark is looked up from Dispatch Plan_yesterday using the CC column match. This is the only condition.' },
   { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
   { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
@@ -191,7 +189,6 @@ const CONDITIONS = [
   { sno:18, col:'Dispatch_Status',          rule:'Carry Dispatch_Status from Dump as-is (Partial Dispatch / Pending).' },
   { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
   { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
-  { sno:21, col:'Remark → "closed"',        rule:'If Pending Kgs < Origin Kgs AND Pending Kgs > 0 AND customer_group is Modern Trade or Quick Commerce AND Customer is Avenue E-Commerce Ltd → Remark = "closed" (overrides VLOOKUP).' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -347,8 +344,8 @@ async function run() {
   const apptMap = {};
   if (apptData.length > 0) {
     const s = apptData[0];
-    const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'PO-No';
-    const dtKey = Object.keys(s).find(k => /^date$/i.test(String(k))) || 'Date';
+    const poKey = Object.keys(s).find(k => /po.?no/i.test(String(k))) || 'Po_No';
+    const dtKey = Object.keys(s).find(k => /appt.?date/i.test(String(k))) || 'Appt date';
     apptData.forEach(r => {
       const po = nor(r[poKey]);
       const dt = toSerial(r[dtKey]);
@@ -473,17 +470,7 @@ async function run() {
   const FK_TYPES = new Set(['fk-grocery-vs48860','fk-hyperlocal-vs46867','fk-alpha-vs46867']);
   const CAT_GROUP = new Set(['category a','modern trade']);
 
-  /* Derive today's serial = max numeric Remark in yesterday + 1.
-     Yesterday carried date N-1 for all numeric rows; today carries N. */
-  let maxYestNumericRemark = 0;
-  yesterday.forEach(r => {
-    const s = toSerial(r.Remark !== undefined ? r.Remark : (r.remark||''));
-    if (s && s > maxYestNumericRemark) maxYestNumericRemark = s;
-  });
-  const todaySerial = maxYestNumericRemark > 0
-    ? maxYestNumericRemark + 1
-    : Math.round((new Date() - new Date('1899-12-30T00:00:00Z')) / 86400000);
-  log(`Today date serial: ${todaySerial} = ${serialToDateStr(todaySerial)}`,'info');
+  /* (No longer need today's serial derived from yesterday's remarks since we just do a direct match) */
 
   /* ── PROCESS ROWS ─────────────────────────────────────────────────────── */
   log('Applying conditions and building output...','info');
@@ -557,57 +544,12 @@ async function run() {
     const poExpirySerial = toSerial(row[COL.PoExpiry]);
     const soDateSerial   = toSerial(row[COL.SoDate]);
 
-    /* ── REMARK (conditions 7–9) ────────────────────────────────────────────
-       Step 1: look up CC in yesterday's plan
-       Step 2a: Category A / Modern Trade → use yesterday's remark as-is (numeric or text).
-                If CC not in yesterday → blank.
-       Step 2b: All other groups →
-          - yesterday numeric remark   → remark = yesterdayRemark + 1  (advance one day)
-          - yesterday text remark + EDD ≤ 1 → carry text as-is
-          - yesterday text remark + EDD > 1 → override with todaySerial
-          - CC not in yesterday         → todaySerial
-       Note: EDD is not yet computed here, so we do a preliminary EDD estimate
-       using todaySerial for the text-vs-numeric branch decision.
+    /* ── REMARK ─────────────────────────────────────────────────────────────
+       Look up CC in yesterday's plan. This is the ONLY condition.
     ─────────────────────────────────────────────────────────────────────── */
     const ysRemark = yesterMap[nor(cc)]; // undefined if not found
-    const ysSerial = ysRemark !== undefined ? toSerial(ysRemark) : null;
-    const ysIsText = ysRemark !== undefined && ysSerial === null && typeof ysRemark === 'string' && ysRemark.trim() !== '';
-    const ysIsNum  = ysSerial !== null;
 
-    // Preliminary EDD estimate (using todaySerial as remark) — needed to decide text-remark branch
-    const prelimRemarkSerial = ysIsNum ? ysSerial + 1 : todaySerial;
-    const prelimDispEDD = (prelimRemarkSerial && day > 0) ? prelimRemarkSerial + day : null;
-    let prelimEDD = '';
-    if (prelimDispEDD !== null) {
-      if (isFK && apptSerial !== null)   prelimEDD = prelimDispEDD - apptSerial;
-      else if (poExpirySerial !== null)  prelimEDD = prelimDispEDD - poExpirySerial;
-      else                               prelimEDD = prelimDispEDD;
-    }
-    const eddGt1 = typeof prelimEDD === 'number' && prelimEDD > 1;
-
-    /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
-    const custGroupNor21 = nor(custGroup);
-    const isRemarkClosed = pendKgs < originKgs
-      && pendKgs > 0
-      && (custGroupNor21 === 'modern trade' || custGroupNor21 === 'quick commerce')
-      && nor(customerVal) === 'avenue e-commerce ltd';
-
-    let remarkRaw;
-    if (isRemarkClosed) {
-      remarkRaw = 'closed';
-    } else if (isCat) {
-      /* CONDITION 8: Category A / Modern Trade → carry yesterday's remark as-is */
-      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
-    } else if (ysIsNum) {
-      /* Numeric yesterday remark → advance by 1 day */
-      remarkRaw = ysSerial + 1;
-    } else if (ysIsText && !eddGt1) {
-      /* Text remark AND EDD ≤ 1 → carry text as-is */
-      remarkRaw = ysRemark;
-    } else {
-      /* Text remark with EDD > 1, or CC not in yesterday → today's serial */
-      remarkRaw = todaySerial;
-    }
+    let remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
     const remarkSerial = toSerial(remarkRaw);
@@ -723,8 +665,7 @@ async function run() {
 
   outputRows = result;
   const cfaGurgaonCount = result.filter(r => r.Origin === 'CFA (Gurgaon)').length;
-  const remarkClosedCount = result.filter(r => r.Remark === 'closed').length;
-  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount} | Remark closed: ${remarkClosedCount}`,'ok');
+  log(`Rows kept: ${kept} | Rows skipped: ${skipped} | CFA Gurgaon: ${cfaGurgaonCount}`,'ok');
 
   renderTable(result);
   const redCount = result.filter(r=>r._red).length;
