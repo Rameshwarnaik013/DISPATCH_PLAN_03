@@ -189,6 +189,7 @@ const CONDITIONS = [
   { sno:18, col:'Dispatch_Status',          rule:'Carry Dispatch_Status from Dump as-is (Partial Dispatch / Pending).' },
   { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
   { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
+  { sno:21, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -638,7 +639,7 @@ async function run() {
       Amount: row['Amount']||'',
       'Tax Amount': row['Tax Amount']||'',
       'Final Amount': row['Final Amount']||'',
-      Delivered_Qty: row['Delivered_Qty']||'',
+      Delivered_Qty: (row['Delivered_Qty'] === undefined || row['Delivered_Qty'] === null || String(row['Delivered_Qty']).trim() === '') ? 0 : row['Delivered_Qty'],
       returned_qty: retQty,
       'Shipping Address Details': row['Shipping Address Details']||'',
       'Shipping Pincode': row['Shipping Pincode']||'',
