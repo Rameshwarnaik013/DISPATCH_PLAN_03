@@ -436,10 +436,25 @@ async function run() {
 
   /* ── CONDITION 7: Yesterday Remark map ───────────────────────────────── */
   const yesterMap = {};
-  yesterday.forEach(r => {
-    const cc = nor(r.CC||'');
-    if (cc) yesterMap[cc] = r.Remark !== undefined ? r.Remark : (r.remark !== undefined ? r.remark : '');
-  });
+  if (yesterday.length > 0) {
+    const ys = yesterday[0];
+    const yCC = fc(ys, 'CC', 'cc');
+    const yRemark = fc(ys, 'Remark', 'remark');
+    const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No');
+    const yItemCode = fc(ys, 'Item_Code', 'Item Code');
+
+    yesterday.forEach(r => {
+      let cc = nor(r[yCC] || '');
+      if (!cc) {
+        // Fallback: concatenate Sales_Order_No + Item_Code if CC column is missing/empty
+        const so = String(r[ySoNo] || '').trim();
+        const ic = String(r[yItemCode] || '').trim();
+        if (so && ic) cc = nor(so + ic);
+      }
+      const rem = r[yRemark];
+      if (cc) yesterMap[cc] = rem !== undefined ? rem : '';
+    });
+  }
   log(`Yesterday remarks: ${Object.keys(yesterMap).length} CC entries`,'ok');
 
   /* ── Detect Dump column names ────────────────────────────────────────── */
