@@ -178,8 +178,6 @@ const CONDITIONS = [
   { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
   { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
   { sno:7,  col:'Remark',                   rule:'Remark is looked up directly from Dispatch Plan_yesterday using the CC column match. Fetches the Remark column exactly as-is.' },
-  { sno:8,  col:'Remark (Sub-rule)',        rule:'Condition cancelled. Replaced entirely by direct CC lookup in Rule 7.' },
-  { sno:9,  col:'Remark (Sub-rule)',        rule:'Condition cancelled. Replaced entirely by direct CC lookup in Rule 7.' },
   { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
   { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
