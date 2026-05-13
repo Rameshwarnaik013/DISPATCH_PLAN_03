@@ -455,21 +455,33 @@ async function run() {
   let maxYestNumericRemark = 0;
   if (yesterday.length > 0) {
     const ys = yesterday[0];
-    const yCC = fc(ys, 'CC', 'cc');
-    const yRemark = fc(ys, 'Remark', 'remark');
+    const yCC = fc(ys, 'CC', 'cc', 'DF:CC');
+    const yRemark = fc(ys, 'Remark', 'Remarks', 'remark', 'remarks', 'Previous day plan (remarks)', 'Previous day plan', 'Previous Day Plan (Remarks)');
     const ySoNo = fc(ys, 'Sales_Order_No', 'Sales Order No', 'sales_order_no', 'sales order no', 'S0- No.');
     const yItemCode = fc(ys, 'Item_Code', 'Item Code', 'item_code', 'item code');
 
     yesterday.forEach(r => {
-      let cc = nor(r[yCC] || '');
-      if (!cc) {
-        // Fallback: concatenate Sales_Order_No + Item_Code if CC column is missing/empty
-        const so = String(r[ySoNo] || '').trim();
-        const ic = String(r[yItemCode] || '').trim();
-        if (so && ic) cc = nor(so + ic);
+      // Find remark value using any potential variation directly if fc missed it
+      let rem = r[yRemark];
+      if (rem === undefined) rem = r['Remarks'];
+      if (rem === undefined) rem = r['remarks'];
+      if (rem === undefined) rem = r['Remark'];
+      if (rem === undefined) rem = r['remark'];
+      if (rem === undefined) rem = r['Previous day plan (remarks)'];
+      if (rem === undefined) rem = '';
+
+      // 1. Map by CC column if valid (ignore Excel formula errors like #N/A)
+      let ccVal = String(r[yCC] || r['DF:CC'] || r['CC'] || r['cc'] || '').trim();
+      if (ccVal && !ccVal.startsWith('#') && ccVal.toLowerCase() !== 'na' && ccVal.toLowerCase() !== 'n/a') {
+        yesterMap[nor(ccVal)] = rem;
       }
-      const rem = r[yRemark];
-      if (cc) yesterMap[cc] = rem !== undefined ? rem : '';
+
+      // 2. Map simultaneously by concatenating Sales_Order_No + Item_Code as absolute safety fallback
+      const so = String(r[ySoNo] || r['Sales_Order_No'] || '').trim();
+      const ic = String(r[yItemCode] || r['Item_Code'] || '').trim();
+      if (so && ic) {
+        yesterMap[nor(so + ic)] = rem;
+      }
 
       const s = toSerial(rem);
       if (s && s > maxYestNumericRemark) maxYestNumericRemark = s;
