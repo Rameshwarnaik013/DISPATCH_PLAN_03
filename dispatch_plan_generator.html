@@ -634,9 +634,9 @@ async function run() {
       remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
     }
 
-    // Default to today's serial if still blank to satisfy requirement that Remark columns must not be empty
+    // Default to yesterday's date serial if still blank to ensure dates remain exactly as-is
     if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
-      remarkRaw = todaySerial;
+      remarkRaw = maxYestNumericRemark > 0 ? maxYestNumericRemark : todaySerial;
     }
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
