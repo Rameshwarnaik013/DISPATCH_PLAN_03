@@ -186,7 +186,7 @@ const CONDITIONS = [
   { sno:15, col:'Priority',                 rule:'P1 = EDD is 0 or 1. P2 = EDD < 0 (negative). No priority set if EDD > 1 or EDD is blank.' },
   { sno:16, col:'Red Highlight',            rule:'Highlight row red if EDD > 1 (numeric). Rows where EDD is blank or text are not highlighted.' },
   { sno:17, col:'Merge',                    rule:'Concatenate Sales_Order_No + Branch.' },
-  { sno:18, col:'Dispatch_Status',          rule:'Carry Dispatch_Status from Dump as-is (Partial Dispatch / Pending).' },
+  { sno:18, col:'Dispatch_Status',          rule:'If any Origin Status contains Partial Dispatch -> Partial Dispatch. Else if Pending -> Pending. Overrides Dump value.' },
   { sno:19, col:'Origin → CFA (Gurgaon)',   rule:'Condition 1: customer_group must be Amazon Retail India, Category A, Vending, or HoReCa.' },
   { sno:20, col:'Origin → CFA (Gurgaon)',   rule:'Condition 2: Item_Name must be in the 56-item CFA Gurgaon approved SKU list. Condition 3: Storage Beyond Sqfeet value > 0 in CFA Gurgaon Stock file. Condition 4: Shipping State must be one of: Uttarakhand, UP, Punjab, Delhi, J&K, HP, Haryana, Rajasthan, Ladakh, Chandigarh. If all 4 conditions are met → Origin = "CFA (Gurgaon)".' },
   { sno:21, col:'Delivered_Qty',            rule:'If Delivered_Qty is blank or missing, set it to 0.' },
@@ -513,10 +513,13 @@ async function run() {
     let finalDisp = String(row[COL.FinalDisp]||'').trim();
     let dispStatus = String(row[COL.DispStatus]||'').trim();
     
-    if (allStatuses.includes('Partial Dispatch')) {
+    const hasPartial = allStatuses.some(s => s.toLowerCase().includes('partial dispatch'));
+    const hasPending = allStatuses.some(s => s.toLowerCase().includes('pending'));
+
+    if (hasPartial) {
       finalDisp = 'Partial Dispatch';
       dispStatus = 'Partial Dispatch';
-    } else if (allStatuses.includes('Pending')) {
+    } else if (hasPending) {
       finalDisp = 'Pending';
       dispStatus = 'Pending';
     }
@@ -705,7 +708,7 @@ async function run() {
 const PREVIEW_COLS = [
   'CC','Sales_Order_No','Sales_Order_Date','Po_No','po_expiry_date',
   'customer_group','client_type','Appt','Remark','Priority',
-  'Final Dispatch Status','If Dispatched, then EDD','EDD',
+  'Final Dispatch Status','Dispatch_Status','If Dispatched, then EDD','EDD',
   'Pending Kgs','Origin','Shipping State','Day','Customer','Item_Code','Branch'
 ];
 
@@ -716,7 +719,7 @@ function renderTable(rows) {
     html += `<tr class="${row._red?'red-row':''}">`;
     PREVIEW_COLS.forEach(h => {
       let val = row[h]??''; let cell = String(val);
-      if (h==='Final Dispatch Status') {
+      if (h==='Final Dispatch Status' || h==='Dispatch_Status') {
         cell = val==='Partial Dispatch' ? `<span class="tag tag-partial">Partial</span>`
              : val==='Pending' ? `<span class="tag tag-pending">Pending</span>` : val;
       } else if (h==='Priority') {
