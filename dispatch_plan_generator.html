@@ -511,11 +511,16 @@ async function run() {
 
     // The Final Dispatch Status is what's stored in the FinalDisp column (already computed in dump)
     let finalDisp = String(row[COL.FinalDisp]||'').trim();
-    // If blank, try to derive from origin status columns
-    if (!finalDisp) {
-      if (allStatuses.some(s=>s==='Partial Dispatch')) finalDisp = 'Partial Dispatch';
-      else if (allStatuses.some(s=>s==='Pending')) finalDisp = 'Pending';
+    let dispStatus = String(row[COL.DispStatus]||'').trim();
+    
+    if (allStatuses.includes('Partial Dispatch')) {
+      finalDisp = 'Partial Dispatch';
+      dispStatus = 'Partial Dispatch';
+    } else if (allStatuses.includes('Pending')) {
+      finalDisp = 'Pending';
+      dispStatus = 'Pending';
     }
+
     if (!['Partial Dispatch','Pending'].includes(finalDisp)) { skipped++; return; }
 
     kept++;
@@ -662,7 +667,7 @@ async function run() {
       'Complete Shipping Address': row['Complete Shipping Address']||'',
       'New MIS ITEM Group': row['New MIS ITEM Group']||'',
       Branch: row[COL.Branch]||'',
-      Dispatch_Status: String(row[COL.DispStatus]||'').trim(),
+      Dispatch_Status: dispStatus,
       Origin_Indore_Status: iStatus,
       Origin_Purnea_Status: pStatus,
       Origin_UD_Foods_Status: uStatus,
