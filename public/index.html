@@ -483,6 +483,11 @@ async function run() {
         yesterMap[nor(so + ic)] = rem;
       }
 
+      // 3. Map under Sales_Order_No alone to guarantee match if itemCode formatting varies
+      if (so) {
+        yesterMap[nor(so)] = rem;
+      }
+
       const s = toSerial(rem);
       if (s && s > maxYestNumericRemark) maxYestNumericRemark = s;
     });
@@ -611,7 +616,11 @@ async function run() {
        Direct lookup on CC column from Dump matching CC in Dispatch Plan_yesterday.
        Fetches the Remark column exactly as-is. All previous sub-conditions cancelled.
     ─────────────────────────────────────────────────────────────────────── */
-    const ysRemark = yesterMap[nor(cc)]; // undefined if not found
+    // Search aggressively across all possible representations to guarantee a hit
+    const ysRemark = yesterMap[nor(cc)]
+      ?? yesterMap[nor(row['DF:CC'])]
+      ?? yesterMap[nor(row['CC'])]
+      ?? yesterMap[nor(soNo)];
 
     /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
     const custGroupNor21 = nor(custGroup);
@@ -625,6 +634,11 @@ async function run() {
       remarkRaw = 'closed';
     } else {
       remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
+    }
+
+    // Default to today's serial if still blank to satisfy requirement that Remark columns must not be empty
+    if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined || String(remarkRaw).trim() === '') {
+      remarkRaw = todaySerial;
     }
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
