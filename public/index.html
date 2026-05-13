@@ -177,9 +177,9 @@ const CONDITIONS = [
   { sno:4,  col:'CC',                       rule:'Concatenate Sales_Order_No + Item_Code from Dump tab.' },
   { sno:5,  col:'Day',                      rule:'VLOOKUP: Match Origin + Shipping State from Dump → LEAD TIME tab (Origin, Shipping State, Day). Fill the Day column from LEAD TIME.' },
   { sno:6,  col:'Appt',                     rule:'If client_type is FK-Grocery-VS48860, FK-Hyperlocal-VS46867, or FK-Alpha-VS46867: VLOOKUP on Po_No in Appointments tab (PO-No → Appt date column). If client_type is "Now": Appt = Sales_Order_Date + 7.' },
-  { sno:7,  col:'Remark — All rows',         rule:'Remark is looked up from Dispatch Plan_yesterday using the CC column match. Three sub-rules apply depending on what is found and the row\'s EDD and customer_group (see rules 8–9 below).' },
-  { sno:8,  col:'Remark — Cat A / Modern Trade', rule:'If customer_group = "Category A" or "Modern Trade": Remark = previous day\'s Remark from Dispatch Plan_yesterday (CC lookup). If CC not found in yesterday → Remark stays blank.' },
-  { sno:9,  col:'Remark — All other groups', rule:'If customer_group ≠ "Category A" / "Modern Trade": (a) If yesterday\'s Remark is numeric → Remark = yesterday_remark + 1 (advances the date by one day). (b) If yesterday\'s Remark is text (e.g. "FTL 7 May Appt", "Appt Required", "Close") AND EDD ≤ 1 → carry text as-is. (c) If yesterday\'s Remark is text AND EDD > 1 → override with today\'s date serial (yesterday_max_numeric_remark + 1). (d) If CC not found in yesterday → default to today\'s date serial. Red cell highlight applies when EDD > 1.' },
+  { sno:7,  col:'Remark',                   rule:'Remark is looked up directly from Dispatch Plan_yesterday using the CC column match. Fetches the Remark column exactly as-is.' },
+  { sno:8,  col:'Remark (Sub-rule)',        rule:'Condition cancelled. Replaced entirely by direct CC lookup in Rule 7.' },
+  { sno:9,  col:'Remark (Sub-rule)',        rule:'Condition cancelled. Replaced entirely by direct CC lookup in Rule 7.' },
   { sno:10, col:'If Dispatched, then EDD',  rule:'= Remark + Day (Excel serial addition). Blank if Remark is a text value (e.g. "FTL 7 May Appt", "Close", "Appt Required").' },
   { sno:11, col:'If Dispatched, then EDD',  rule:'Special case — Airlines: If_Dispatched_EDD is still Remark + Day. (Condition 17 in sheet means Airlines EDD column = po_expiry_date, not the If_Dispatched_EDD column.)' },
   { sno:12, col:'EDD',                      rule:'For FK types (FK-Grocery, FK-Hyperlocal, FK-Alpha): EDD = If_Dispatched_EDD − Appt.' },
@@ -595,30 +595,11 @@ async function run() {
     const poExpirySerial = toSerial(row[COL.PoExpiry]);
     const soDateSerial   = toSerial(row[COL.SoDate]);
 
-    /* ── REMARK (conditions 7–9) ────────────────────────────────────────────
-       Step 1: look up CC in yesterday's plan
-       Step 2a: Category A / Modern Trade → use yesterday's remark as-is.
-       Step 2b: All other groups →
-          - yesterday numeric remark   → remark = yesterdayRemark + 1
-          - yesterday text remark + EDD ≤ 1 → carry text as-is
-          - yesterday text remark + EDD > 1 → override with todaySerial
-          - CC not in yesterday         → todaySerial
+    /* ── REMARK ─────────────────────────────────────────────────────────────
+       Direct lookup on CC column from Dump matching CC in Dispatch Plan_yesterday.
+       Fetches the Remark column exactly as-is. All previous sub-conditions cancelled.
     ─────────────────────────────────────────────────────────────────────── */
     const ysRemark = yesterMap[nor(cc)]; // undefined if not found
-    const ysSerial = ysRemark !== undefined ? toSerial(ysRemark) : null;
-    const ysIsText = ysRemark !== undefined && ysSerial === null && typeof ysRemark === 'string' && ysRemark.trim() !== '';
-    const ysIsNum  = ysSerial !== null;
-
-    // Preliminary EDD estimate (using todaySerial as remark) — needed to decide text-remark branch
-    const prelimRemarkSerial = ysIsNum ? ysSerial + 1 : todaySerial;
-    const prelimDispEDD = (prelimRemarkSerial && day >= 0) ? prelimRemarkSerial + day : null;
-    let prelimEDD = '';
-    if (prelimDispEDD !== null) {
-      if (isFK && apptSerial !== null)   prelimEDD = Math.round(prelimDispEDD - apptSerial);
-      else if (poExpirySerial !== null)  prelimEDD = Math.round(prelimDispEDD - poExpirySerial);
-      else                               prelimEDD = Math.round(prelimDispEDD);
-    }
-    const eddGt1 = typeof prelimEDD === 'number' && prelimEDD > 1;
 
     /* ── CONDITION 21: Remark → "closed" override ──────────────────── */
     const custGroupNor21 = nor(custGroup);
@@ -630,23 +611,8 @@ async function run() {
     let remarkRaw;
     if (isRemarkClosed) {
       remarkRaw = 'closed';
-    } else if (isCat) {
-      /* CONDITION 8: Category A / Modern Trade → carry yesterday's remark as-is */
-      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
-    } else if (ysIsNum) {
-      /* Numeric yesterday remark → advance by 1 day */
-      remarkRaw = ysSerial + 1;
-    } else if (ysIsText && !eddGt1) {
-      /* Text remark AND EDD ≤ 1 → carry text as-is */
-      remarkRaw = ysRemark;
     } else {
-      /* Text remark with EDD > 1, or CC not in yesterday → today's serial */
-      remarkRaw = todaySerial;
-    }
-
-    // Ensure Remark column is NEVER empty for any row as explicitly requested
-    if (remarkRaw === '' || remarkRaw === null || remarkRaw === undefined) {
-      remarkRaw = todaySerial;
+      remarkRaw = (ysRemark !== undefined) ? ysRemark : '';
     }
 
     /* CONDITION 10: If Dispatched, then EDD = Remark + Day */
